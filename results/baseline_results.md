@@ -24,17 +24,26 @@ Overall expected-source Recall@5:
 
 ## Observations
 
-The pure vector baseline performs well on questions containing explicit
-equipment names and error codes.
+The baseline performs well on questions that contain explicit equipment names
+and error codes.
 
-For Q1 to Q4, all expected sources are retrieved within the Top-5.
+For Q1, Q3 and Q4, short technical codes such as `E133`, `U4` and `F28`
+are correctly retrieved within the Top-5. In this dataset, these codes do not
+appear to be the main weakness of the semantic baseline.
 
-Q5 exposes a limitation of pure semantic vector retrieval. The historical
-intervention `INT-021` is retrieved, but the technical maintenance chunk
-`daikin_entretien` is missing from the Top-5.
+Q2 also works well without an error code: the semantic model correctly links
+the user's description of water leaking under the air conditioner with the
+technical section about an indoor-unit water leak.
 
-This suggests that metadata and domain-specific signals such as brand,
-equipment type, error code and maintenance intent could improve retrieval.
+The main limitation appears on Q5, which is a more functional question without
+an error code. The retriever finds the relevant historical intervention
+`INT-021`, but the technical maintenance chunk `daikin_entretien` does not
+appear in the Top-5.
 
-The baseline is intentionally kept simple so that later retrieval
-improvements can be compared against a measurable reference.
+This suggests that pure vector similarity can favor historically similar
+interventions while missing a complementary technical document that is useful
+for diagnosis.
+
+The next retrieval improvement should therefore be guided by this observed
+failure, using structured metadata and domain-specific signals rather than
+adding rules arbitrarily.
