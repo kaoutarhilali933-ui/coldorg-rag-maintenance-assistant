@@ -55,3 +55,20 @@ The final corpus currently contains 48 records:
 
 - 30 historical intervention records
 - 18 technical-sheet records
+## Embedding model
+
+The prototype uses `intfloat/multilingual-e5-small` through Sentence Transformers.
+
+This model was selected because:
+
+- it supports multilingual content, including French;
+- it is designed for semantic retrieval tasks;
+- its small size is appropriate for a lightweight local prototype;
+- it provides a good balance between retrieval quality and computational cost.
+
+The RAG pipeline transforms both maintenance chunks and the user's question
+into numerical vectors. Similar vectors represent semantically similar content,
+which allows the retriever to find the most relevant maintenance information.
+
+Following the E5 retrieval format, documents are encoded with the `passage:`
+prefix and user questions with the `query:` prefix.
