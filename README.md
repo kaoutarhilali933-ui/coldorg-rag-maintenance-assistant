@@ -91,3 +91,59 @@ To rebuild the vector index from scratch:
 
 ```bash
 python src/indexer.py
+## Retrieval improvement
+
+The first retrieval baseline used pure semantic vector search with the
+`intfloat/multilingual-e5-small` embedding model and ChromaDB.
+
+On the five provided evaluation questions, the baseline retrieved:
+
+**12 / 13 expected sources — Recall@5 = 92.31%**
+
+The main weakness appeared on the question describing a heat pump that was
+heating but leaving the house cold without displaying an error code.
+
+The relevant historical intervention (`INT-021`) was retrieved, but the
+complementary technical maintenance section (`daikin_entretien`) was outside
+the Top-5.
+
+To improve retrieval, a lightweight metadata-aware reranking step was added.
+
+The system now:
+
+1. retrieves the Top-20 candidates using semantic similarity;
+2. detects useful business signals in the user query;
+3. reranks the candidates using semantic similarity and metadata bonuses.
+
+The current heuristic weights are:
+
+- exact error-code match: `+0.05`;
+- explicit absence of an error code: `+0.03`;
+- exact brand match: `+0.003`.
+
+The brand bonus is deliberately small. Brand is treated as a preference rather
+than a strict filter because useful historical cases may come from another
+manufacturer.
+
+For example, on the no-error-code heat-pump question, the relevant
+cross-brand intervention `INT-021` remains useful even though the question
+mentions Daikin.
+
+After reranking, the evaluation result becomes:
+
+**13 / 13 expected sources — Recall@5 = 100.00%**
+
+| Question | Baseline | Improved retrieval |
+|---|---:|---:|
+| Q1 - Frisquet E133 | 4 / 4 | 4 / 4 |
+| Q2 - Atlantic water leak | 2 / 2 | 2 / 2 |
+| Q3 - Daikin U4 | 2 / 2 | 2 / 2 |
+| Q4 - Saunier Duval F28 recurring fault | 3 / 3 | 3 / 3 |
+| Q5 - Daikin heating without error code | 1 / 2 | 2 / 2 |
+
+The 100% Recall@5 result is measured only on the five provided test questions.
+It should not be interpreted as evidence of perfect performance on unseen
+production data.
+The reranking weights are heuristic and were adjusted based on the provided
+evaluation questions. They should therefore be validated on a larger,
+independent test set before being used in production.

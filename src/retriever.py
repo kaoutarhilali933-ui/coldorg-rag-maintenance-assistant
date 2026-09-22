@@ -1,3 +1,5 @@
+import re
+
 import chromadb
 from sentence_transformers import SentenceTransformer
 
@@ -6,6 +8,10 @@ EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-small"
 
 CHROMA_PATH = "chroma_db"
 COLLECTION_NAME = "coldorg_maintenance"
+
+BRAND_BONUS = 0.003
+ERROR_CODE_BONUS = 0.05
+NO_ERROR_CODE_BONUS = 0.03
 
 
 def load_embedding_model():
@@ -104,34 +110,239 @@ def search_similar(model, query, top_k=5):
     return retrieved_results
 
 
+def search_candidates(model, query, candidate_k=20):
+    """Récupère un ensemble plus large de candidats avant reranking."""
+
+    candidates = search_similar(
+        model,
+        query,
+        top_k=candidate_k,
+    )
+
+    return candidates
+
+
+def get_known_metadata_values():
+    """Récupère les marques et codes erreur connus dans Chroma."""
+
+    collection = get_vector_collection()
+
+    data = collection.get(
+        include=["metadatas"],
+    )
+
+    brands = set()
+    error_codes = set()
+
+    for metadata in data["metadatas"]:
+        marque = metadata.get("marque", "")
+        code_erreur = metadata.get("code_erreur", "")
+
+        if marque:
+            brands.add(marque)
+
+        if code_erreur:
+            error_codes.add(code_erreur)
+
+    return brands, error_codes
+
+
+def detect_query_signals(query):
+    """Détecte les signaux métier présents dans une question."""
+
+    brands, error_codes = get_known_metadata_values()
+
+    query_lower = query.lower()
+    query_upper = query.upper()
+
+    detected_brand = None
+    detected_error_code = None
+
+    no_error_code = any(
+        expression in query_lower
+        for expression in [
+            "aucun code erreur",
+            "pas de code erreur",
+            "sans code erreur",
+            "aucun code d'erreur",
+            "pas de code d'erreur",
+            "sans code d'erreur",
+        ]
+    )
+
+    for brand in brands:
+        if brand.lower() in query_lower:
+            detected_brand = brand
+            break
+
+    for error_code in error_codes:
+        pattern = rf"(?<!\w){re.escape(error_code.upper())}(?!\w)"
+
+        if re.search(pattern, query_upper):
+            detected_error_code = error_code
+            break
+
+    return {
+        "marque": detected_brand,
+        "code_erreur": detected_error_code,
+        "aucun_code_erreur": no_error_code,
+    }
+
+
+def calculate_metadata_bonus(metadata, query_signals):
+    """Calcule les bonus métier à partir des métadonnées."""
+
+    brand_bonus = 0.0
+    error_code_bonus = 0.0
+    no_error_code_bonus = 0.0
+
+    detected_brand = query_signals["marque"]
+    detected_error_code = query_signals["code_erreur"]
+    no_error_code = query_signals["aucun_code_erreur"]
+
+    document_brand = metadata.get("marque", "")
+    document_error_code = metadata.get("code_erreur", "")
+
+    if (
+        detected_brand
+        and document_brand.lower() == detected_brand.lower()
+    ):
+        brand_bonus = BRAND_BONUS
+
+    if (
+        detected_error_code
+        and document_error_code.upper() == detected_error_code.upper()
+    ):
+        error_code_bonus = ERROR_CODE_BONUS
+
+    if (
+        no_error_code
+        and document_error_code == ""
+    ):
+        no_error_code_bonus = NO_ERROR_CODE_BONUS
+
+    total_bonus = (
+        brand_bonus
+        + error_code_bonus
+        + no_error_code_bonus
+    )
+
+    return {
+        "brand_bonus": brand_bonus,
+        "error_code_bonus": error_code_bonus,
+        "no_error_code_bonus": no_error_code_bonus,
+        "total_bonus": total_bonus,
+    }
+
+
+def rerank_candidates(candidates, query_signals, top_k=5):
+    """Rerank les candidats avec le score sémantique et les métadonnées."""
+
+    reranked_results = []
+
+    for candidate in candidates:
+        bonuses = calculate_metadata_bonus(
+            candidate["metadata"],
+            query_signals,
+        )
+
+        hybrid_score = (
+            candidate["score"]
+            + bonuses["total_bonus"]
+        )
+
+        reranked_candidate = candidate.copy()
+
+        reranked_candidate["semantic_score"] = candidate["score"]
+        reranked_candidate["brand_bonus"] = bonuses["brand_bonus"]
+        reranked_candidate["error_code_bonus"] = bonuses[
+            "error_code_bonus"
+        ]
+        reranked_candidate["no_error_code_bonus"] = bonuses[
+            "no_error_code_bonus"
+        ]
+        reranked_candidate["metadata_bonus"] = bonuses["total_bonus"]
+        reranked_candidate["hybrid_score"] = hybrid_score
+
+        reranked_results.append(reranked_candidate)
+
+    reranked_results.sort(
+        key=lambda result: result["hybrid_score"],
+        reverse=True,
+    )
+
+    return reranked_results[:top_k]
+
+
+def search_hybrid(model, query, candidate_k=20, top_k=5):
+    """Effectue une recherche vectorielle suivie d'un reranking métier."""
+
+    candidates = search_candidates(
+        model,
+        query,
+        candidate_k=candidate_k,
+    )
+
+    query_signals = detect_query_signals(query)
+
+    results = rerank_candidates(
+        candidates,
+        query_signals,
+        top_k=top_k,
+    )
+
+    return results
+
+
 if __name__ == "__main__":
     model = load_embedding_model()
 
-    print("Modèle d'embeddings chargé avec succès.")
-    print(f"Modèle : {EMBEDDING_MODEL_NAME}")
-
     test_query = (
-        "Code erreur E133 sur une chaudière Frisquet Prestige "
-        "Condensation 25kW. La chaudière ne redémarre pas depuis "
-        "ce matin. Quelles sont les causes possibles et comment "
-        "diagnostiquer ?"
+        "Le client dit que sa PAC Daikin chauffe mais que la maison "
+        "reste froide. La PAC ne montre aucun code erreur. Que vérifier ?"
     )
 
-    print("\nQuestion :")
-    print(test_query)
+    signals = detect_query_signals(test_query)
 
-    results = search_similar(
+    print("--- SIGNAUX DÉTECTÉS ---")
+    print(f"Marque : {signals['marque']}")
+    print(f"Code erreur : {signals['code_erreur']}")
+    print(
+        f"Aucun code erreur indiqué : "
+        f"{signals['aucun_code_erreur']}"
+    )
+
+    results = search_hybrid(
         model,
         test_query,
+        candidate_k=20,
         top_k=5,
     )
 
-    print("\n--- TOP 5 RÉSULTATS ---")
+    print("\n--- TOP 5 APRÈS RERANKING ---")
 
     for rank, result in enumerate(results, start=1):
-        print(f"\nRésultat {rank}")
-        print(f"Source ID : {result['source_id']}")
-        print(f"Source type : {result['source_type']}")
-        print(f"Score : {result['score']:.4f}")
-        print("Texte :")
-        print(result["text"])
+        print(
+            f"\n{rank}. {result['source_id']} "
+            f"| {result['source_type']}"
+        )
+        print(
+            f"Score sémantique : "
+            f"{result['semantic_score']:.4f}"
+        )
+        print(
+            f"Bonus marque : "
+            f"{result['brand_bonus']:.4f}"
+        )
+        print(
+            f"Bonus code exact : "
+            f"{result['error_code_bonus']:.4f}"
+        )
+        print(
+            f"Bonus absence de code : "
+            f"{result['no_error_code_bonus']:.4f}"
+        )
+        print(
+            f"Score hybride : "
+            f"{result['hybrid_score']:.4f}"
+        )

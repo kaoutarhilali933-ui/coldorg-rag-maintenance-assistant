@@ -3,12 +3,14 @@ from pathlib import Path
 
 from src.retriever import (
     load_embedding_model,
-    search_similar,
+    search_hybrid,
 )
 
 
 QUESTIONS_PATH = Path("data/questions_test.json")
+
 TOP_K = 5
+CANDIDATE_K = 20
 
 
 EXPECTED_SOURCES = {
@@ -64,7 +66,9 @@ def evaluate_retrieval(results, expected_sources):
         for result in results
     }
 
-    found_sources = expected_sources.intersection(retrieved_sources)
+    found_sources = expected_sources.intersection(
+        retrieved_sources
+    )
 
     return found_sources
 
@@ -89,9 +93,10 @@ if __name__ == "__main__":
         print("=" * 70)
         print(question_text)
 
-        results = search_similar(
+        results = search_hybrid(
             model,
             question_text,
+            candidate_k=CANDIDATE_K,
             top_k=TOP_K,
         )
 
@@ -105,14 +110,18 @@ if __name__ == "__main__":
         total_expected += len(expected_sources)
         total_found += len(found_sources)
 
-        print(f"\n--- TOP {TOP_K} RÉSULTATS ---")
+        print(
+            f"\n--- TOP {TOP_K} RÉSULTATS HYBRIDES ---"
+        )
 
         for rank, result in enumerate(results, start=1):
             print(
                 f"{rank}. "
                 f"{result['source_id']} | "
                 f"{result['source_type']} | "
-                f"score={result['score']:.4f}"
+                f"semantic={result['semantic_score']:.4f} | "
+                f"bonus={result['metadata_bonus']:.4f} | "
+                f"hybrid={result['hybrid_score']:.4f}"
             )
 
         print(
@@ -128,7 +137,7 @@ if __name__ == "__main__":
     recall_at_k = total_found / total_expected
 
     print("\n" + "=" * 70)
-    print("RÉSULTAT GLOBAL DE LA BASELINE")
+    print("RÉSULTAT GLOBAL DU RETRIEVAL HYBRIDE")
     print("=" * 70)
 
     print(
