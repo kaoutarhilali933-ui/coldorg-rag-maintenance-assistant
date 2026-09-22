@@ -1,80 +1,80 @@
 import json
-from collections import Counter
 from pathlib import Path
+
 
 DATA_PATH = Path("data/interventions.json")
 
-with open(DATA_PATH, "r", encoding="utf-8") as f:
-    interventions = json.load(f)
 
-# Nombre total d'interventions
-print(f"Nombre total d'interventions : {len(interventions)}")
+def load_interventions():
+    """Charge les interventions depuis le fichier JSON."""
+    with open(DATA_PATH, "r", encoding="utf-8") as file:
+        interventions = json.load(file)
 
-# Comptage des marques
-marques = Counter(item["marque"] for item in interventions)
+    return interventions
 
-# Comptage des types d'équipements
-types = Counter(item["type_equipement"] for item in interventions)
 
-# Récupération des codes erreur non nuls
-codes = [
-    item["code_erreur"]
-    for item in interventions
-    if item["code_erreur"] is not None
-]
+def intervention_to_document(intervention):
+    """Transforme une intervention en document texte pour le RAG."""
 
-codes_counter = Counter(codes)
+    # Gestion du code erreur absent
+    code_erreur = intervention["code_erreur"] or "Aucun code erreur"
 
-# Nombre d'interventions sans code erreur
-sans_code = sum(
-    1
-    for item in interventions
-    if item["code_erreur"] is None
-)
+    # Gestion d'une liste de pièces vide
+    if intervention["pieces_remplacees"]:
+        pieces = ", ".join(intervention["pieces_remplacees"])
+    else:
+        pieces = "Aucune pièce remplacée"
 
-# Affichage des marques
-print("\nMarques :")
-for marque, count in marques.items():
-    print(f"- {marque}: {count}")
+    document = (
+        f"Intervention : {intervention['id']}\n"
+        f"Équipement : {intervention['equipement']}\n"
+        f"Marque : {intervention['marque']}\n"
+        f"Type d'équipement : {intervention['type_equipement']}\n"
+        f"Code erreur : {code_erreur}\n"
+        f"Symptôme : {intervention['symptome']}\n"
+        f"Diagnostic : {intervention['diagnostic']}\n"
+        f"Solution : {intervention['solution']}\n"
+        f"Pièces remplacées : {pieces}"
+    )
 
-# Affichage des types d'équipements
-print("\nTypes d'équipements :")
-for type_eq, count in types.items():
-    print(f"- {type_eq}: {count}")
+    return document
 
-# Affichage du nombre d'interventions sans code erreur
-print(f"\nInterventions sans code erreur : {sans_code}")
 
-# Affichage des codes erreur récurrents
-print("\nCodes erreur récurrents :")
-for code, count in codes_counter.items():
-    if count > 1:
-        print(f"- {code}: {count}")
+def build_intervention_documents(interventions):
+    """Transforme toutes les interventions en documents RAG."""
 
-# Détail des codes erreur récurrents
-print("\nDétail des codes erreur récurrents :")
+    documents = []
 
-for code, count in codes_counter.items():
-    if count > 1:
-        print(f"\nCode {code} ({count} interventions)")
+    for intervention in interventions:
+        document = intervention_to_document(intervention)
+        documents.append(document)
 
-        for item in interventions:
-            if item["code_erreur"] == code:
-                print(
-                    f"- {item['id']} | "
-                    f"{item['marque']} | "
-                    f"{item['symptome']} | "
-                    f"Diagnostic: {item['diagnostic']}"
-                )
+    return documents
 
-# Détail des interventions sans code erreur
-print("\nInterventions sans code erreur :")
 
-for item in interventions:
-    if item["code_erreur"] is None:
-        print(
-            f"- {item['id']} | "
-            f"{item['marque']} | "
-            f"{item['type_equipement']} | "
-            f"{item['symptome']}"
-        )
+def validate_documents(documents):
+    """Vérifie que les documents RAG sont correctement construits."""
+
+    assert len(documents) == 30, "Le nombre de documents devrait être 30."
+
+    for document in documents:
+        assert "None" not in document, "Un document contient encore la valeur None."
+        assert "Symptôme :" in document, "Un document ne contient pas de symptôme."
+        assert "Diagnostic :" in document, "Un document ne contient pas de diagnostic."
+        assert "Solution :" in document, "Un document ne contient pas de solution."
+
+    print("Validation réussie : tous les documents RAG sont corrects.")
+
+
+if __name__ == "__main__":
+    interventions = load_interventions()
+
+    documents = build_intervention_documents(interventions)
+
+    validate_documents(documents)
+
+    print(f"Nombre d'interventions chargées : {len(interventions)}")
+    print(f"Nombre de documents RAG créés : {len(documents)}")
+
+    print("\n--- Premier document RAG ---")
+    print(documents[0])
