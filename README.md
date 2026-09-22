@@ -72,3 +72,22 @@ which allows the retriever to find the most relevant maintenance information.
 
 Following the E5 retrieval format, documents are encoded with the `passage:`
 prefix and user questions with the `query:` prefix.
+## Vector index
+
+The project uses ChromaDB as a persistent local vector database.
+
+The index is built from the original maintenance data and technical sheets.
+Each record stores:
+
+- a unique `source_id`;
+- the original chunk text;
+- its embedding vector;
+- the associated metadata.
+
+The local Chroma database is stored in `chroma_db/`.
+This directory is excluded from Git because the index can be rebuilt at any time.
+
+To rebuild the vector index from scratch:
+
+```bash
+python src/indexer.py
