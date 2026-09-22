@@ -34,3 +34,24 @@ This produces 18 technical chunks from the 4 technical sheets.
 Each chunk also keeps contextual information such as the manufacturer, equipment model, and equipment type so that it remains understandable when retrieved independently.
 
 This semantic, business-oriented chunking strategy is preferred over arbitrary fixed-size splitting because it keeps each diagnostic topic and its associated causes and procedures together.
+## Metadata strategy
+
+Each RAG record contains structured metadata in addition to its textual content.
+
+The common metadata fields are:
+
+- `source_type`: distinguishes historical interventions from technical sheets
+- `source_id`: unique identifier for traceability and source citation
+- `marque`: equipment manufacturer
+- `type_equipement`: normalized equipment category
+- `code_erreur`: error code when available, otherwise an empty string
+- `equipement`: equipment or model name
+
+Historical interventions also include the intervention `date`.
+
+Metadata is kept separate from the embedded text so it can later be used for filtering, ranking, traceability, and retrieval improvements.
+
+The final corpus currently contains 48 records:
+
+- 30 historical intervention records
+- 18 technical-sheet records
