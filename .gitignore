@@ -16,3 +16,10 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+# Chroma vector database
+chroma_db/
+.chroma/
+
+# Cache / temporary files
+.pytest_cache/
+.cache/
