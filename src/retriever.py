@@ -122,8 +122,23 @@ def search_candidates(model, query, candidate_k=20):
     return candidates
 
 
+_METADATA_CACHE = None
+
+
+def reset_metadata_cache():
+    """Vide le cache des marques et codes erreur connus."""
+
+    global _METADATA_CACHE
+    _METADATA_CACHE = None
+
+
 def get_known_metadata_values():
     """Récupère les marques et codes erreur connus dans Chroma."""
+
+    global _METADATA_CACHE
+
+    if _METADATA_CACHE is not None:
+        return _METADATA_CACHE
 
     collection = get_vector_collection()
 
@@ -144,7 +159,49 @@ def get_known_metadata_values():
         if code_erreur:
             error_codes.add(code_erreur)
 
-    return brands, error_codes
+    _METADATA_CACHE = (brands, error_codes)
+
+    return _METADATA_CACHE
+
+
+def find_brand(query, brands):
+    """Détecte la marque mentionnée dans la question."""
+
+    query_lower = query.lower()
+
+    for brand in sorted(brands, key=len, reverse=True):
+        if brand.lower() in query_lower:
+            return brand
+
+    return None
+
+
+def find_error_code(query, error_codes):
+    """Détecte un code erreur explicite dans la question."""
+
+    for error_code in sorted(error_codes, key=len, reverse=True):
+        has_digit = any(
+            character.isdigit()
+            for character in error_code
+        )
+
+        if has_digit:
+            searched_text = query.upper()
+            searched_code = error_code.upper()
+        else:
+            searched_text = query
+            searched_code = error_code
+
+        pattern = (
+            rf"(?<!\w)"
+            rf"{re.escape(searched_code)}"
+            rf"(?!\w)"
+        )
+
+        if re.search(pattern, searched_text):
+            return error_code
+
+    return None
 
 
 def detect_query_signals(query):
@@ -153,10 +210,6 @@ def detect_query_signals(query):
     brands, error_codes = get_known_metadata_values()
 
     query_lower = query.lower()
-    query_upper = query.upper()
-
-    detected_brand = None
-    detected_error_code = None
 
     no_error_code = any(
         expression in query_lower
@@ -170,17 +223,18 @@ def detect_query_signals(query):
         ]
     )
 
-    for brand in brands:
-        if brand.lower() in query_lower:
-            detected_brand = brand
-            break
+    detected_brand = find_brand(
+        query,
+        brands,
+    )
 
-    for error_code in error_codes:
-        pattern = rf"(?<!\w){re.escape(error_code.upper())}(?!\w)"
-
-        if re.search(pattern, query_upper):
-            detected_error_code = error_code
-            break
+    if no_error_code:
+        detected_error_code = None
+    else:
+        detected_error_code = find_error_code(
+            query,
+            error_codes,
+        )
 
     return {
         "marque": detected_brand,
