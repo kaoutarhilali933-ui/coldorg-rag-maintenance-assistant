@@ -5,8 +5,8 @@ maintenance technicians diagnose equipment issues using historical
 interventions and technical documentation.
 
 The system retrieves relevant maintenance knowledge, reranks it using business
-metadata, and generates a grounded technician-oriented answer with source
-citations.
+metadata, and generates a technician-oriented answer grounded in the retrieved
+COLDORG sources.
 
 ## Status
 
@@ -22,8 +22,9 @@ Functional prototype.
 - metadata-aware retrieval reranking;
 - local answer generation with Llama 3.2 through Ollama;
 - source citations in generated answers;
-- automatic validation of generated source IDs;
-- retrieval and end-to-end evaluation scripts.
+- automatic validation of cited source identifiers;
+- retrieval and end-to-end evaluation scripts;
+- lightweight Streamlit web interface.
 
 ## Architecture
 
@@ -61,10 +62,15 @@ with source citations
 
 ```text
 coldorg-rag-maintenance-assistant/
+├── app.py
 ├── data/
 │   ├── interventions.json
 │   ├── questions_test.json
 │   └── docs/
+│       ├── fiche_atlantic_climatisation.txt
+│       ├── fiche_daikin_altherma.txt
+│       ├── fiche_frisquet_prestige.txt
+│       └── fiche_saunier_duval_themaplus.txt
 ├── results/
 │   ├── baseline_results.md
 │   ├── evaluation_plan.md
@@ -125,7 +131,9 @@ The four technical sheets produce 18 technical chunks.
 
 Combined with the 30 historical interventions, the indexed corpus contains:
 
-**48 records**
+```text
+48 records
+```
 
 ## Metadata strategy
 
@@ -327,36 +335,49 @@ results/rag_evaluation.md
 
 ## Installation
 
-### 1. Create a Python virtual environment
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/kaoutarhilali933-ui/coldorg-rag-maintenance-assistant.git
+cd coldorg-rag-maintenance-assistant
+```
+
+### 2. Create a Python virtual environment
 
 Python 3.11 was used during development.
 
+On Windows:
+
 ```powershell
-python -m venv .venv
+py -3.11 -m venv .venv
 ```
 
-On Windows PowerShell:
+Activate the environment:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\.venv\Scripts\Activate.ps1
 ```
 
-### 2. Install Python dependencies
+After activation, the terminal should display `(.venv)`.
 
-```bash
-pip install -r requirements.txt
+### 3. Install Python dependencies
+
+```powershell
+python -m pip install -r requirements.txt
 ```
 
-### 3. Install Ollama and Llama 3.2
+### 4. Install Ollama and Llama 3.2
 
-Install Ollama, then download the model:
+Install Ollama for your operating system.
+
+Then download and start Llama 3.2:
 
 ```bash
 ollama run llama3.2
 ```
 
-After the model has been downloaded, Ollama exposes a local API on:
+After the model has been downloaded, Ollama exposes its local API on:
 
 ```text
 http://localhost:11434
@@ -364,29 +385,105 @@ http://localhost:11434
 
 No external LLM API key is required.
 
-### 4. Build the vector index
+### 5. Build the vector index
 
 ```bash
 python src/indexer.py
 ```
 
-### 5. Evaluate retrieval
+A successful build should produce:
+
+```text
+Nombre de records à indexer : 48
+Nombre d'éléments après indexation : 48
+```
+
+### 6. Evaluate retrieval
 
 ```bash
 python evaluate.py
 ```
 
-### 6. Evaluate the complete RAG pipeline
+Expected result on the provided evaluation set:
+
+```text
+Sources attendues retrouvées : 13/13
+Recall@5 : 100.00%
+```
+
+### 7. Evaluate the complete RAG pipeline
 
 ```bash
 python evaluate_rag.py
 ```
 
-A single example can also be executed with:
+Expected citation validation result on the provided evaluation set:
+
+```text
+Réponses avec citations valides : 5/5
+```
+
+A single RAG example can also be executed with:
 
 ```bash
 python src/generator.py
 ```
+
+## Web interface
+
+A lightweight Streamlit interface is included for interactive use.
+
+Before starting the interface, make sure that:
+
+- Python dependencies are installed;
+- the Chroma index has been built with `python src/indexer.py`;
+- Ollama is running locally;
+- the `llama3.2` model is available.
+
+Start the interface with:
+
+```bash
+python -m streamlit run app.py
+```
+
+Streamlit will display a local URL, usually:
+
+```text
+http://localhost:8501
+```
+
+Open this URL in a browser.
+
+The interface allows a technician to:
+
+- enter a maintenance question;
+- launch the complete RAG pipeline;
+- read the generated diagnostic answer;
+- inspect the cited COLDORG sources;
+- verify whether cited source identifiers belong to the retrieved context.
+
+The first analysis may take longer because the embedding model must be loaded
+into memory. The model is then cached by Streamlit for subsequent questions.
+
+## Reproducibility check
+
+The project was tested from a fresh clone of the GitHub repository.
+
+The following steps were successfully reproduced from scratch:
+
+```text
+Fresh clone
+→ new Python 3.11 virtual environment
+→ install requirements
+→ rebuild Chroma index from 0 to 48 records
+→ run retrieval evaluation
+→ obtain 13/13 expected sources
+→ run the complete RAG pipeline
+→ obtain 5/5 answers with valid cited source IDs
+```
+
+This confirms that the vector database does not need to be committed to Git
+and can be reconstructed from the source files.
 
 ## Current limitations
 
@@ -403,7 +500,8 @@ Observed limitations include:
   information;
 - metadata values are currently loaded from Chroma at query time;
 - there is no dedicated BM25 or lexical retrieval component;
-- there is no production user interface.
+- the Streamlit interface is a prototype and is not designed as a production
+  application.
 
 These limitations should be addressed before deploying the system in a real
 maintenance environment.
@@ -457,7 +555,7 @@ Potential next steps include:
 - stronger sentence-level citation validation;
 - automated groundedness evaluation;
 - technician feedback loops;
-- lightweight web interface;
+- authentication and user management for the web interface;
 - support for additional manufacturers and document formats.
 
 ## Evaluation summary
@@ -476,6 +574,9 @@ Recall@5 = 13/13 = 100.00%
 
 End-to-end RAG:
 5/5 answers used only valid retrieved source IDs
+
+Interface:
+Streamlit prototype tested successfully with the complete RAG pipeline
 ```
 
 These results were measured on the provided evaluation set and are not intended

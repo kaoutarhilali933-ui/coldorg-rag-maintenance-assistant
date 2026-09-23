@@ -1,2 +1,4 @@
 sentence-transformers==6.1.0
 chromadb==1.5.9
+streamlit==1.64.0
+torchvision==0.29.0
