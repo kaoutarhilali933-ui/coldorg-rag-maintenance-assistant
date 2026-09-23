@@ -14,6 +14,33 @@ ERROR_CODE_BONUS = 0.05
 NO_ERROR_CODE_BONUS = 0.03
 
 
+EQUIPMENT_TYPE_ALIASES = {
+    "pac_air_eau": [
+        "pompe à chaleur air/eau",
+        "pompe a chaleur air/eau",
+        "pompe à chaleur",
+        "pompe a chaleur",
+        "pac",
+    ],
+    "climatisation": [
+        "climatiseur",
+        "climatisation",
+    ],
+    "chaudiere_gaz": [
+        "chaudière",
+        "chaudiere",
+    ],
+    "chauffe_eau_thermo": [
+        "chauffe-eau thermodynamique",
+        "chauffe eau thermodynamique",
+        "ballon thermodynamique",
+    ],
+    "vmc": [
+        "vmc",
+    ],
+}
+
+
 def load_embedding_model():
     """Charge le modèle d'embeddings utilisé par le RAG."""
 
@@ -204,6 +231,25 @@ def find_error_code(query, error_codes):
     return None
 
 
+def find_equipment_type(query):
+    """Détecte le type d'équipement explicitement mentionné."""
+
+    query_lower = query.lower()
+
+    for equipment_type, aliases in EQUIPMENT_TYPE_ALIASES.items():
+        for alias in aliases:
+            pattern = (
+                rf"(?<!\w)"
+                rf"{re.escape(alias.lower())}"
+                rf"(?!\w)"
+            )
+
+            if re.search(pattern, query_lower):
+                return equipment_type
+
+    return None
+
+
 def detect_query_signals(query):
     """Détecte les signaux métier présents dans une question."""
 
@@ -228,6 +274,10 @@ def detect_query_signals(query):
         brands,
     )
 
+    detected_equipment_type = find_equipment_type(
+        query,
+    )
+
     if no_error_code:
         detected_error_code = None
     else:
@@ -240,6 +290,7 @@ def detect_query_signals(query):
         "marque": detected_brand,
         "code_erreur": detected_error_code,
         "aucun_code_erreur": no_error_code,
+        "type_equipement": detected_equipment_type,
     }
 
 
@@ -295,6 +346,7 @@ def rerank_candidates(candidates, query_signals, top_k=5):
     reranked_results = []
 
     no_error_code = query_signals["aucun_code_erreur"]
+    detected_equipment_type = query_signals["type_equipement"]
 
     for candidate in candidates:
         document_error_code = candidate["metadata"].get(
@@ -302,10 +354,26 @@ def rerank_candidates(candidates, query_signals, top_k=5):
             "",
         )
 
+        document_equipment_type = candidate["metadata"].get(
+            "type_equipement",
+            "",
+        )
+
         # Si le technicien précise explicitement qu'aucun code erreur
         # n'est affiché, les documents associés à un code erreur précis
         # décrivent une situation différente et sont écartés.
         if no_error_code and document_error_code:
+            continue
+
+        # Si le type d'équipement est explicitement identifiable dans
+        # la question, on écarte les documents d'un autre type.
+        # La marque n'est volontairement pas utilisée comme filtre :
+        # un cas similaire d'une autre marque peut rester pertinent.
+        if (
+            detected_equipment_type
+            and document_equipment_type
+            and document_equipment_type != detected_equipment_type
+        ):
             continue
 
         bonuses = calculate_metadata_bonus(
@@ -378,6 +446,10 @@ if __name__ == "__main__":
         f"Aucun code erreur indiqué : "
         f"{signals['aucun_code_erreur']}"
     )
+    print(
+        f"Type d'équipement : "
+        f"{signals['type_equipement']}"
+    )
 
     results = search_hybrid(
         model,
@@ -392,6 +464,10 @@ if __name__ == "__main__":
         print(
             f"\n{rank}. {result['source_id']} "
             f"| {result['source_type']}"
+        )
+        print(
+            f"Type équipement : "
+            f"{result['metadata'].get('type_equipement', '')}"
         )
         print(
             f"Score sémantique : "
