@@ -70,7 +70,11 @@ def evaluate_retrieval(results, expected_sources):
         retrieved_sources
     )
 
-    return found_sources
+    unexpected_sources = retrieved_sources.difference(
+        expected_sources
+    )
+
+    return found_sources, unexpected_sources
 
 
 if __name__ == "__main__":
@@ -84,6 +88,7 @@ if __name__ == "__main__":
 
     total_expected = 0
     total_found = 0
+    total_retrieved = 0
 
     for index, question in enumerate(questions, start=1):
         question_text = get_question_text(question)
@@ -102,13 +107,14 @@ if __name__ == "__main__":
 
         expected_sources = EXPECTED_SOURCES[index]
 
-        found_sources = evaluate_retrieval(
+        found_sources, unexpected_sources = evaluate_retrieval(
             results,
             expected_sources,
         )
 
         total_expected += len(expected_sources)
         total_found += len(found_sources)
+        total_retrieved += len(results)
 
         print(
             f"\n--- TOP {TOP_K} RÉSULTATS HYBRIDES ---"
@@ -124,6 +130,18 @@ if __name__ == "__main__":
                 f"hybrid={result['hybrid_score']:.4f}"
             )
 
+        question_recall = (
+            len(found_sources) / len(expected_sources)
+            if expected_sources
+            else 0.0
+        )
+
+        question_precision = (
+            len(found_sources) / len(results)
+            if results
+            else 0.0
+        )
+
         print(
             f"\nSources attendues retrouvées : "
             f"{len(found_sources)}/{len(expected_sources)}"
@@ -134,7 +152,42 @@ if __name__ == "__main__":
             f"{sorted(found_sources)}"
         )
 
-    recall_at_k = total_found / total_expected
+        print(
+            f"Autres sources retournées : "
+            f"{sorted(unexpected_sources)}"
+        )
+
+        print(
+            f"Recall de la question : "
+            f"{question_recall:.2%}"
+        )
+
+        print(
+            f"Précision du contexte retourné : "
+            f"{question_precision:.2%}"
+        )
+
+    recall_at_k = (
+        total_found / total_expected
+        if total_expected
+        else 0.0
+    )
+
+    context_precision = (
+        total_found / total_retrieved
+        if total_retrieved
+        else 0.0
+    )
+
+    if recall_at_k + context_precision:
+        f1_score = (
+            2
+            * recall_at_k
+            * context_precision
+            / (recall_at_k + context_precision)
+        )
+    else:
+        f1_score = 0.0
 
     print("\n" + "=" * 70)
     print("RÉSULTAT GLOBAL DU RETRIEVAL HYBRIDE")
@@ -146,6 +199,21 @@ if __name__ == "__main__":
     )
 
     print(
+        f"Documents retournés au total : "
+        f"{total_retrieved}"
+    )
+
+    print(
         f"Recall@{TOP_K} : "
         f"{recall_at_k:.2%}"
+    )
+
+    print(
+        f"Précision du contexte retourné : "
+        f"{context_precision:.2%}"
+    )
+
+    print(
+        f"F1 retrieval : "
+        f"{f1_score:.2%}"
     )
