@@ -1,4 +1,5 @@
 import re
+import unicodedata
 
 import chromadb
 from sentence_transformers import SentenceTransformer
@@ -12,6 +13,21 @@ COLLECTION_NAME = "coldorg_maintenance"
 BRAND_BONUS = 0.003
 ERROR_CODE_BONUS = 0.05
 NO_ERROR_CODE_BONUS = 0.03
+
+# Petit complément lexical au score sémantique.
+# Il ne remplace jamais les embeddings.
+LEXICAL_BONUS_WEIGHT = 0.02
+
+# Le filtrage lexical n'est activé que lorsqu'un document correspond
+# très fortement aux mots de la question.
+MIN_LEXICAL_PRUNING_SCORE = 0.80
+
+# Les autres documents doivent conserver au moins 60 % du niveau
+# de correspondance lexicale du meilleur document pour être gardés.
+LEXICAL_KEEP_RATIO = 0.60
+
+# On conserve toujours au moins deux sources.
+MIN_CONTEXT_RESULTS = 2
 
 
 EQUIPMENT_TYPE_ALIASES = {
@@ -38,6 +54,92 @@ EQUIPMENT_TYPE_ALIASES = {
     "vmc": [
         "vmc",
     ],
+}
+
+
+STOPWORDS_FR = {
+    "a",
+    "ai",
+    "au",
+    "aux",
+    "avec",
+    "ce",
+    "ces",
+    "cet",
+    "cette",
+    "dans",
+    "de",
+    "des",
+    "du",
+    "elle",
+    "en",
+    "est",
+    "et",
+    "eux",
+    "il",
+    "ils",
+    "je",
+    "la",
+    "le",
+    "les",
+    "leur",
+    "leurs",
+    "lui",
+    "ma",
+    "mais",
+    "me",
+    "mes",
+    "moi",
+    "mon",
+    "ne",
+    "nos",
+    "notre",
+    "nous",
+    "on",
+    "ou",
+    "par",
+    "pas",
+    "pour",
+    "qu",
+    "que",
+    "qui",
+    "sa",
+    "se",
+    "ses",
+    "son",
+    "sont",
+    "sous",
+    "sur",
+    "ta",
+    "te",
+    "tes",
+    "toi",
+    "ton",
+    "tu",
+    "un",
+    "une",
+    "vos",
+    "votre",
+    "vous",
+    "y",
+    "plus",
+    "depuis",
+    "ca",
+    "ça",
+    "etre",
+    "être",
+    "peut",
+    "quelles",
+    "quelle",
+    "quels",
+    "quel",
+    "comment",
+    "quoi",
+    "dit",
+    "client",
+    "faire",
+    "dois",
+    "doit",
 }
 
 
@@ -294,6 +396,58 @@ def detect_query_signals(query):
     }
 
 
+def normalize_words(text):
+    """Transforme un texte en ensemble de mots significatifs."""
+
+    normalized_text = unicodedata.normalize(
+        "NFKD",
+        text or "",
+    )
+
+    normalized_text = normalized_text.encode(
+        "ascii",
+        "ignore",
+    ).decode(
+        "ascii",
+    )
+
+    words = re.findall(
+        r"[a-zA-Z0-9]+",
+        normalized_text.lower(),
+    )
+
+    meaningful_words = {
+        word
+        for word in words
+        if len(word) >= 3
+        and word not in STOPWORDS_FR
+    }
+
+    return meaningful_words
+
+
+def calculate_lexical_score(query, document_text):
+    """Mesure le recouvrement lexical entre question et document.
+
+    Le score correspond à la proportion de mots significatifs de la
+    question également présents dans le document.
+
+    Ce score complète la recherche vectorielle mais ne la remplace pas.
+    """
+
+    query_words = normalize_words(query)
+    document_words = normalize_words(document_text)
+
+    if not query_words:
+        return 0.0
+
+    common_words = query_words.intersection(
+        document_words,
+    )
+
+    return len(common_words) / len(query_words)
+
+
 def calculate_metadata_bonus(metadata, query_signals):
     """Calcule les bonus métier à partir des métadonnées."""
 
@@ -316,7 +470,8 @@ def calculate_metadata_bonus(metadata, query_signals):
 
     if (
         detected_error_code
-        and document_error_code.upper() == detected_error_code.upper()
+        and document_error_code.upper()
+        == detected_error_code.upper()
     ):
         error_code_bonus = ERROR_CODE_BONUS
 
@@ -340,8 +495,70 @@ def calculate_metadata_bonus(metadata, query_signals):
     }
 
 
-def rerank_candidates(candidates, query_signals, top_k=5):
-    """Rerank les candidats avec le score sémantique et les métadonnées."""
+def select_lexically_relevant_results(
+    results,
+    query_signals,
+):
+    """Réduit un contexte très bruité lorsqu'un symptôme est très explicite.
+
+    Le filtrage lexical n'est utilisé que :
+    - sans code erreur explicite ;
+    - lorsqu'il reste plus de deux résultats ;
+    - lorsqu'au moins un résultat présente une très forte correspondance
+      lexicale avec la question.
+
+    Deux résultats sont toujours conservés afin de ne pas rendre le
+    retrieval excessivement agressif.
+    """
+
+    if len(results) <= MIN_CONTEXT_RESULTS:
+        return results
+
+    if query_signals["code_erreur"]:
+        return results
+
+    best_lexical_score = max(
+        result["lexical_score"]
+        for result in results
+    )
+
+    if best_lexical_score < MIN_LEXICAL_PRUNING_SCORE:
+        return results
+
+    lexical_threshold = (
+        best_lexical_score
+        * LEXICAL_KEEP_RATIO
+    )
+
+    selected_results = list(
+        results[:MIN_CONTEXT_RESULTS]
+    )
+
+    selected_source_ids = {
+        result["source_id"]
+        for result in selected_results
+    }
+
+    for result in results[MIN_CONTEXT_RESULTS:]:
+        if (
+            result["lexical_score"] >= lexical_threshold
+            and result["source_id"] not in selected_source_ids
+        ):
+            selected_results.append(result)
+            selected_source_ids.add(
+                result["source_id"]
+            )
+
+    return selected_results
+
+
+def rerank_candidates(
+    candidates,
+    query,
+    query_signals,
+    top_k=5,
+):
+    """Rerank les candidats avec sémantique, métadonnées et lexical."""
 
     reranked_results = []
 
@@ -361,15 +578,13 @@ def rerank_candidates(candidates, query_signals, top_k=5):
         )
 
         # Si le technicien précise explicitement qu'aucun code erreur
-        # n'est affiché, les documents associés à un code erreur précis
+        # n'est affiché, les documents associés à un code précis
         # décrivent une situation différente et sont écartés.
         if no_error_code and document_error_code:
             continue
 
         # Si le technicien mentionne un code erreur précis,
-        # les documents associés à un AUTRE code erreur sont écartés.
-        # Les documents sans code restent autorisés car ils peuvent
-        # contenir une procédure générale ou un symptôme pertinent.
+        # les documents associés à un autre code sont écartés.
         if (
             detected_error_code
             and document_error_code
@@ -378,14 +593,14 @@ def rerank_candidates(candidates, query_signals, top_k=5):
         ):
             continue
 
-        # Si le type d'équipement est explicitement identifiable dans
-        # la question, on écarte les documents d'un autre type.
-        # La marque n'est volontairement pas utilisée comme filtre :
-        # un cas similaire d'une autre marque peut rester pertinent.
+        # Si le type d'équipement est explicitement identifiable,
+        # on écarte les documents d'un autre type.
+        # La marque n'est volontairement pas un filtre strict.
         if (
             detected_equipment_type
             and document_equipment_type
-            and document_equipment_type != detected_equipment_type
+            and document_equipment_type
+            != detected_equipment_type
         ):
             continue
 
@@ -394,32 +609,63 @@ def rerank_candidates(candidates, query_signals, top_k=5):
             query_signals,
         )
 
+        lexical_score = calculate_lexical_score(
+            query,
+            candidate["text"],
+        )
+
+        lexical_bonus = (
+            lexical_score
+            * LEXICAL_BONUS_WEIGHT
+        )
+
         hybrid_score = (
             candidate["score"]
             + bonuses["total_bonus"]
+            + lexical_bonus
         )
 
         reranked_candidate = candidate.copy()
 
         reranked_candidate["semantic_score"] = candidate["score"]
-        reranked_candidate["brand_bonus"] = bonuses["brand_bonus"]
+
+        reranked_candidate["brand_bonus"] = bonuses[
+            "brand_bonus"
+        ]
+
         reranked_candidate["error_code_bonus"] = bonuses[
             "error_code_bonus"
         ]
+
         reranked_candidate["no_error_code_bonus"] = bonuses[
             "no_error_code_bonus"
         ]
-        reranked_candidate["metadata_bonus"] = bonuses["total_bonus"]
+
+        reranked_candidate["metadata_bonus"] = bonuses[
+            "total_bonus"
+        ]
+
+        reranked_candidate["lexical_score"] = lexical_score
+        reranked_candidate["lexical_bonus"] = lexical_bonus
         reranked_candidate["hybrid_score"] = hybrid_score
 
-        reranked_results.append(reranked_candidate)
+        reranked_results.append(
+            reranked_candidate
+        )
 
     reranked_results.sort(
         key=lambda result: result["hybrid_score"],
         reverse=True,
     )
 
-    return reranked_results[:top_k]
+    top_results = reranked_results[:top_k]
+
+    selected_results = select_lexically_relevant_results(
+        top_results,
+        query_signals,
+    )
+
+    return selected_results
 
 
 def search_hybrid(model, query, candidate_k=20, top_k=5):
@@ -431,10 +677,13 @@ def search_hybrid(model, query, candidate_k=20, top_k=5):
         candidate_k=candidate_k,
     )
 
-    query_signals = detect_query_signals(query)
+    query_signals = detect_query_signals(
+        query,
+    )
 
     results = rerank_candidates(
         candidates,
+        query,
         query_signals,
         top_k=top_k,
     )
@@ -450,15 +699,19 @@ if __name__ == "__main__":
         "reste froide. La PAC ne montre aucun code erreur. Que vérifier ?"
     )
 
-    signals = detect_query_signals(test_query)
+    signals = detect_query_signals(
+        test_query,
+    )
 
     print("--- SIGNAUX DÉTECTÉS ---")
     print(f"Marque : {signals['marque']}")
     print(f"Code erreur : {signals['code_erreur']}")
+
     print(
         f"Aucun code erreur indiqué : "
         f"{signals['aucun_code_erreur']}"
     )
+
     print(
         f"Type d'équipement : "
         f"{signals['type_equipement']}"
@@ -471,33 +724,52 @@ if __name__ == "__main__":
         top_k=5,
     )
 
-    print("\n--- TOP 5 APRÈS RERANKING ---")
+    print("\n--- RÉSULTATS APRÈS RERANKING ---")
 
-    for rank, result in enumerate(results, start=1):
+    for rank, result in enumerate(
+        results,
+        start=1,
+    ):
         print(
             f"\n{rank}. {result['source_id']} "
             f"| {result['source_type']}"
         )
+
         print(
             f"Type équipement : "
             f"{result['metadata'].get('type_equipement', '')}"
         )
+
         print(
             f"Score sémantique : "
             f"{result['semantic_score']:.4f}"
         )
+
         print(
             f"Bonus marque : "
             f"{result['brand_bonus']:.4f}"
         )
+
         print(
             f"Bonus code exact : "
             f"{result['error_code_bonus']:.4f}"
         )
+
         print(
             f"Bonus absence de code : "
             f"{result['no_error_code_bonus']:.4f}"
         )
+
+        print(
+            f"Score lexical : "
+            f"{result['lexical_score']:.4f}"
+        )
+
+        print(
+            f"Bonus lexical : "
+            f"{result['lexical_bonus']:.4f}"
+        )
+
         print(
             f"Score hybride : "
             f"{result['hybrid_score']:.4f}"
