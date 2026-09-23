@@ -294,7 +294,20 @@ def rerank_candidates(candidates, query_signals, top_k=5):
 
     reranked_results = []
 
+    no_error_code = query_signals["aucun_code_erreur"]
+
     for candidate in candidates:
+        document_error_code = candidate["metadata"].get(
+            "code_erreur",
+            "",
+        )
+
+        # Si le technicien précise explicitement qu'aucun code erreur
+        # n'est affiché, les documents associés à un code erreur précis
+        # décrivent une situation différente et sont écartés.
+        if no_error_code and document_error_code:
+            continue
+
         bonuses = calculate_metadata_bonus(
             candidate["metadata"],
             query_signals,
