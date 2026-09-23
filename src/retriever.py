@@ -346,6 +346,7 @@ def rerank_candidates(candidates, query_signals, top_k=5):
     reranked_results = []
 
     no_error_code = query_signals["aucun_code_erreur"]
+    detected_error_code = query_signals["code_erreur"]
     detected_equipment_type = query_signals["type_equipement"]
 
     for candidate in candidates:
@@ -363,6 +364,18 @@ def rerank_candidates(candidates, query_signals, top_k=5):
         # n'est affiché, les documents associés à un code erreur précis
         # décrivent une situation différente et sont écartés.
         if no_error_code and document_error_code:
+            continue
+
+        # Si le technicien mentionne un code erreur précis,
+        # les documents associés à un AUTRE code erreur sont écartés.
+        # Les documents sans code restent autorisés car ils peuvent
+        # contenir une procédure générale ou un symptôme pertinent.
+        if (
+            detected_error_code
+            and document_error_code
+            and document_error_code.upper()
+            != detected_error_code.upper()
+        ):
             continue
 
         # Si le type d'équipement est explicitement identifiable dans
