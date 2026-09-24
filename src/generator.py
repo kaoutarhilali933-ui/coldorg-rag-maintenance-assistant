@@ -4,6 +4,7 @@ import socket
 import time
 import unicodedata
 
+from collections import Counter
 from urllib import error, request
 
 try:
@@ -112,7 +113,7 @@ def build_structured_prompt(question, results):
     Pour chaque affirmation, le modèle doit fournir :
     - le texte de l'affirmation ;
     - un source_id ;
-    - une courte preuve copiée exactement depuis cette source.
+    - une courte preuve copiée depuis cette source.
     """
 
     context = format_retrieved_context(results)
@@ -160,16 +161,16 @@ Pour chaque élément généré, tu dois fournir :
    L'identifiant EXACT du document qui soutient cette information.
 
 3. "evidence"
-   Un COURT EXTRAIT COPIÉ EXACTEMENT depuis le CONTENU de cette source.
+   Un COURT EXTRAIT provenant du CONTENU de cette source.
 
 La preuve "evidence" :
 
 - doit provenir du même document que "source_id" ;
-- doit être copiée depuis le document, sans reformulation ;
+- doit reprendre fidèlement les mots présents dans le document ;
 - doit idéalement contenir entre 4 et 20 mots ;
 - doit montrer clairement pourquoi l'affirmation est supportée.
 
-Si tu ne peux pas trouver de preuve exacte dans une source,
+Si tu ne peux pas trouver de preuve dans une source,
 N'AJOUTE PAS l'affirmation.
 
 Ne mets jamais de citation dans le champ "text".
@@ -202,21 +203,21 @@ Structure :
     {{
       "text": "cause possible",
       "source_id": "identifiant autorisé",
-      "evidence": "extrait exact copié depuis cette source"
+      "evidence": "court extrait provenant de cette source"
     }}
   ],
   "verifications": [
     {{
       "text": "vérification à effectuer",
       "source_id": "identifiant autorisé",
-      "evidence": "extrait exact copié depuis cette source"
+      "evidence": "court extrait provenant de cette source"
     }}
   ],
   "actions": [
     {{
       "text": "action ou solution possible",
       "source_id": "identifiant autorisé",
-      "evidence": "extrait exact copié depuis cette source"
+      "evidence": "court extrait provenant de cette source"
     }}
   ]
 }}
@@ -232,7 +233,7 @@ IMPORTANT
 - Ne mets pas de crochets autour du source_id.
 - Une catégorie peut être vide.
 - Ne crée jamais une information uniquement pour remplir une catégorie.
-- Une affirmation sans preuve exacte doit être omise.
+- Une affirmation sans preuve doit être omise.
 
 QUESTION DU TECHNICIEN
 ----------------------
@@ -320,7 +321,7 @@ def parse_json_response(raw_text):
     Transforme la sortie du modèle en objet Python.
 
     Le nettoyage permet également de gérer un éventuel bloc
-    ```json ... ``` ajouté malgré les instructions.
+    Markdown ajouté malgré les instructions.
     """
 
     cleaned_text = raw_text.strip()
@@ -512,9 +513,15 @@ def evidence_is_supported(
     source_text,
 ):
     """
-    Vérifie qu'une preuve existe réellement dans le document annoncé.
+    Vérifie qu'une preuve est réellement supportée par le document.
 
-    Le modèle doit avoir copié un court extrait du document.
+    La validation accepte :
+    1. une correspondance exacte après normalisation ;
+    2. ou une correspondance lexicale forte avec conservation
+       d'au moins un groupe de mots consécutifs.
+
+    Cela tolère de petites reformulations du LLM sans accepter
+    une preuve provenant d'un document sans rapport.
     """
 
     if not isinstance(
@@ -535,16 +542,74 @@ def evidence_is_supported(
         return False
 
     evidence_words = normalized_evidence.split()
+    source_words = normalized_source.split()
 
     # Une preuve trop courte comme "gaz" ou "test"
     # n'est pas assez discriminante.
     if len(evidence_words) < 3:
         return False
 
-    return (
-        normalized_evidence
-        in normalized_source
+    # Cas idéal : la preuve apparaît directement dans le document.
+    if normalized_evidence in normalized_source:
+        return True
+
+    evidence_counts = Counter(
+        evidence_words
     )
+
+    source_counts = Counter(
+        source_words
+    )
+
+    matched_words = sum(
+        min(
+            count,
+            source_counts.get(
+                word,
+                0,
+            ),
+        )
+        for word, count in evidence_counts.items()
+    )
+
+    lexical_coverage = (
+        matched_words
+        / len(evidence_words)
+    )
+
+    # Au moins 80 % des mots de la preuve doivent
+    # réellement être présents dans la source.
+    if lexical_coverage < 0.80:
+        return False
+
+    # On exige également au moins un groupe de deux mots
+    # consécutifs commun entre la preuve et la source.
+    evidence_bigrams = {
+        (
+            evidence_words[index],
+            evidence_words[index + 1],
+        )
+        for index in range(
+            len(evidence_words) - 1
+        )
+    }
+
+    source_bigrams = {
+        (
+            source_words[index],
+            source_words[index + 1],
+        )
+        for index in range(
+            len(source_words) - 1
+        )
+    }
+
+    has_common_bigram = bool(
+        evidence_bigrams
+        & source_bigrams
+    )
+
+    return has_common_bigram
 
 
 def remove_embedded_citations(text):
@@ -614,7 +679,7 @@ def sanitize_items(
     - son texte est valide ;
     - son source_id est autorisé ;
     - elle possède une preuve ;
-    - cette preuve existe réellement dans le document indiqué.
+    - cette preuve est suffisamment supportée par le document indiqué.
     """
 
     stats = {

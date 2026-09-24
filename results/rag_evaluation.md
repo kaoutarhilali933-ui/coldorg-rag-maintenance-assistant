@@ -15,29 +15,29 @@ This evaluation runs the complete RAG pipeline:
 
 ## Causes possibles
 
-- Pas d'arrivée de gaz. [INT-001]
-- Électrode d'allumage encrassée ou mal positionnée. [INT-001]
-- Fil de masse desserré sur le boîtier de contrôle. [INT-001]
-- Problème d'ionisation. [frisquet_e133]
+- Problème côté réseau gaz. [INT-011]
 
 ## Vérifications recommandées
 
-Information non disponible dans les sources fournies.
+- Contact GRDF pour signalement basse pression réseau. [INT-011]
 
 ## Actions ou solutions possibles
 
-- Nettoyer l'électrode d'allumage. [INT-001]
-- Contact GRDF pour signalement basse pression réseau. [INT-011]
+- Réglage temporaire du débit gaz. [INT-011]
+- Reset du boîtier. [INT-001]
+- Purge de la ligne gaz. [INT-029]
+- Allumage normal. [INT-029]
+- Explication du fonctionnement au client. [INT-029]
 
 ## Sources utilisées
 
 - [INT-001]
 - [INT-011]
-- [frisquet_e133]
+- [INT-029]
 
 ### Citation validation
 
-**Cited sources:** INT-001, INT-011, frisquet_e133
+**Cited sources:** INT-001, INT-011, INT-029
 
 **Invalid sources:** None
 
@@ -52,22 +52,29 @@ Information non disponible dans les sources fournies.
 ## Causes possibles
 
 - Bac de condensat obstrué (algues, poussière). [INT-003]
+- Tuyau d'évacuation bouché ou mal penté. [INT-003]
+- Fuite d'eau unité intérieure pas de niveau. [atlantic_fuite_eau]
 
 ## Vérifications recommandées
 
 - Nettoyer le bac de condensat. [INT-003]
+- Déboucher le tuyau d'évacuation. [INT-003]
+- Installer une pastille anti-algues. [atlantic_fuite_eau]
 
 ## Actions ou solutions possibles
 
 - Nettoyer le bac de condensat. [INT-003]
+- Déboucher le tuyau d'évacuation. [INT-003]
+- Installer une pastille anti-algues. [atlantic_fuite_eau]
 
 ## Sources utilisées
 
 - [INT-003]
+- [atlantic_fuite_eau]
 
 ### Citation validation
 
-**Cited sources:** INT-003
+**Cited sources:** INT-003, atlantic_fuite_eau
 
 **Invalid sources:** None
 
@@ -89,7 +96,7 @@ Information non disponible dans les sources fournies.
 
 ## Actions ou solutions possibles
 
-Information non disponible dans les sources fournies.
+- Remplacement du câble de communication 4 fils. [INT-002]
 
 ## Sources utilisées
 
@@ -116,6 +123,9 @@ Information non disponible dans les sources fournies.
 ## Vérifications recommandées
 
 - Vérifier l'arrivée de gaz et la pression (20 mbar). [saunier_f28]
+- Inspecter l'électrode (état, position, câblage). [saunier_f28]
+- Mesurer le courant d'ionisation (> 1 microA requis). [saunier_f28]
+- Tester l'électrovanne gaz (tension de commande, courant). [saunier_f28]
 
 ## Actions ou solutions possibles
 
@@ -153,6 +163,7 @@ Information non disponible dans les sources fournies.
 ## Actions ou solutions possibles
 
 - Réglage de la courbe de chauffe. [INT-021]
+- Activation de l'appoint électrique. [INT-021]
 
 ## Sources utilisées
 
