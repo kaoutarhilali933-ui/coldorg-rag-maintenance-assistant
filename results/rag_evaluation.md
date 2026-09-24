@@ -15,29 +15,26 @@ This evaluation runs the complete RAG pipeline:
 
 ## Causes possibles
 
-- Problème côté réseau gaz. [INT-011]
+Information non disponible dans les sources fournies.
 
 ## Vérifications recommandées
 
-- Contact GRDF pour signalement basse pression réseau. [INT-011]
+Information non disponible dans les sources fournies.
 
 ## Actions ou solutions possibles
 
 - Réglage temporaire du débit gaz. [INT-011]
 - Reset du boîtier. [INT-001]
-- Purge de la ligne gaz. [INT-029]
-- Allumage normal. [INT-029]
-- Explication du fonctionnement au client. [INT-029]
+- Test de fonctionnement. [INT-001]
 
 ## Sources utilisées
 
 - [INT-001]
 - [INT-011]
-- [INT-029]
 
 ### Citation validation
 
-**Cited sources:** INT-001, INT-011, INT-029
+**Cited sources:** INT-001, INT-011
 
 **Invalid sources:** None
 
